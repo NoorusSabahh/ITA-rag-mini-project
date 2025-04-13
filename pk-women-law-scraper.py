@@ -6,12 +6,6 @@ import time
 from googlesearch import search
 import PyPDF2
 
-# Create directory for PDFs
-current_dir = os.path.dirname(os.path.abspath(__file__))
-pdf_dir = os.path.join(current_dir, 'women_laws_pdfs')
-
-if not os.path.exists(pdf_dir):
-    os.makedirs(pdf_dir)
 
 def extract_federal_laws(url):
     headers = {
@@ -82,9 +76,12 @@ def extract_federal_laws(url):
 
 def search_law_pdfs(laws):
     results = {}
-    
+
+    output_dir = "women_laws_pdfs"
+    os.makedirs(output_dir, exist_ok=True)
+
     for law in laws:
-        print(f"Searching for PDF of: {law}")
+        print(f"\n🔍 Searching for PDF of: {law}")
         
         search_queries = [
             f"{law} Pakistan official pdf filetype:pdf",
@@ -93,104 +90,121 @@ def search_law_pdfs(laws):
             f"{law} act pakistan filetype:pdf",
             f"pakistan {law} official document filetype:pdf"
         ]
-        
+
         pdf_urls = []
         for query in search_queries:
             try:
-                print(f"  Trying query: {query}")
-                
+                print(f"   ➤ Query: {query}")
                 for url in search(query, num=3, stop=3, pause=2):
-                    if url.lower().endswith('.pdf') and url not in pdf_urls:
+                    if url.lower().endswith(".pdf") and url not in pdf_urls:
                         pdf_urls.append(url)
                 
                 if pdf_urls:
-                    print(f"  Found {len(pdf_urls)} potential PDFs")
+                    print(f" Found {len(pdf_urls)} PDF link(s).")
                     break 
-                
                 time.sleep(3)
-                
+
             except Exception as e:
-                print(f"  Error with search query '{query}': {e}")
+                print(f" Error during search: {e}")
                 time.sleep(5)
-        
+
         if pdf_urls:
             success = False
             for pdf_url in pdf_urls:
                 try:
-                    pdf_name = re.sub(r'[^\w\s-]', '', law)
-                    pdf_name = re.sub(r'\s+', '_', pdf_name) 
-                    pdf_name = pdf_name[:50] + ".pdf"
-                    pdf_path = os.path.join('pro_women_laws_pdfs', pdf_name)
-                    
-                    pdf_response = requests.get(pdf_url, stream=True, timeout=30)
-                    pdf_response.raise_for_status()
-                    
-                    if 'application/pdf' in pdf_response.headers.get('Content-Type', ''):
-                        with open(pdf_path, 'wb') as f:
-                            for chunk in pdf_response.iter_content(chunk_size=8192):
+                    file_name = re.sub(r"[^\w\s-]", "", law)
+                    file_name = re.sub(r"\s+", "_", file_name)[:50] + ".pdf"
+                    file_path = os.path.join(output_dir, file_name)
+
+                    print(f"Downloading: {pdf_url}")
+                    response = requests.get(pdf_url, stream=True, timeout=30)
+                    response.raise_for_status()
+
+                    if "application/pdf" in response.headers.get("Content-Type", ""):
+                        with open(file_path, "wb") as f:
+                            for chunk in response.iter_content(chunk_size=8192):
                                 f.write(chunk)
-                        
-                        print(f"  Successfully downloaded PDF for '{law}' to {pdf_path}")
+                        print(f"   📥 Saved to: {file_path}")
                         results[law] = {
-                            'status': 'Success',
-                            'url': pdf_url,
-                            'path': pdf_path
+                            "status": "Success",
+                            "url": pdf_url,
+                            "path": file_path
                         }
                         success = True
                         break
                     else:
-                        print(f"  URL {pdf_url} is not a valid PDF despite .pdf extension")
-                        
+                        print(f"Not a valid PDF file.")
+
                 except Exception as e:
-                    print(f"  Error downloading PDF from {pdf_url}: {e}")
-            
+                    print(f"Failed to download from {pdf_url}: {e}")
+
             if not success:
                 results[law] = {
-                    'status': 'Found URLs but download failed',
-                    'urls': pdf_urls
+                    "status": "Found URLs but download failed",
+                    "urls": pdf_urls
                 }
         else:
-            print(f"  No PDF found for '{law}'")
+            print(f"   ❌ No PDF found for '{law}'")
             results[law] = {
-                'status': 'No PDF found'
+                "status": "No PDF found"
             }
-                
-        time.sleep(5)
-    
+        time.sleep(5) 
+
     return results
 
 # Function to verify PDFs and check their content
 def verify_pdfs(results):
+    keywords = ['law', 'bill', 'amendment', 'act', 'ordinance', 'rights', 'ord', 'protection']
+    
+    print("Total downloaded PDFs to verify:", len(results))
+
     for law, result in results.items():
         if result['status'] == 'Success' and 'path' in result:
             pdf_path = result['path']
+            filename = os.path.basename(pdf_path).lower()
+
+            if not any(kw in filename for kw in keywords):
+                print(f"File '{filename}' doesn't match naming keywords. Deleting...")
+                try:
+                    os.remove(pdf_path)
+                    result['verification'] = {
+                        'valid_pdf': False,
+                        'reason': 'Filename did not contain law-related keyword, deleted.'
+                    }
+                except Exception as e:
+                    print(f"⚠️ Error deleting file '{pdf_path}': {e}")
+                    result['verification'] = {
+                        'valid_pdf': False,
+                        'error': str(e)
+                    }
+                continue
+
             try:
                 with open(pdf_path, 'rb') as f:
                     pdf_reader = PyPDF2.PdfReader(f)
                     num_pages = len(pdf_reader.pages)
-                    
-                    first_page_text = pdf_reader.pages[0].extract_text()
-                    
+                    first_page_text = pdf_reader.pages[0].extract_text() or ""
+
                     law_keywords = [word.lower() for word in law.split() if len(word) > 3]
                     matches = sum(1 for keyword in law_keywords if keyword in first_page_text.lower())
                     relevance_score = matches / len(law_keywords) if law_keywords else 0
-                    
+
                     result['verification'] = {
                         'valid_pdf': True,
                         'pages': num_pages,
                         'relevance_score': relevance_score,
                         'likely_match': relevance_score > 0.3
                     }
-                    
+
                     print(f"Verified PDF for '{law}': {num_pages} pages, relevance score: {relevance_score:.2f}")
-                    
+
             except Exception as e:
-                print(f"Error verifying PDF for '{law}': {e}")
+                print(f" Error verifying PDF for '{law}': {e}")
                 result['verification'] = {
                     'valid_pdf': False,
                     'error': str(e)
                 }
-    
+    print("Results after verification:", len(results))
     return results
 
 # Function to analyze a specific PDF
