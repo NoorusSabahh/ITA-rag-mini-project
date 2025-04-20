@@ -8,6 +8,7 @@ This project uses Retrieval-Augmented Generation (RAG) to build a Question Answe
 ├── women_laws_pdfs/ # Raw PDFs scraped or uploaded manually
 ├── markdowns/ # Parsed markdowns generated from PDFs
 ├── pdf-to-md-parser.py # PDF to Markdown parser using LlamaParse
+├── ita-rag.ipynb # the notebook for this project
 ├── pk-women-law-scraper.py # Scraper for pro-women laws from NCSW and other sources
 ├── README.md # Project guide (you're here!)
 ```
